@@ -1,45 +1,61 @@
-// detectorWrapper.js
+// frontend/src/core/detectorWrapper.js
 // Wraps a detector object that exposes update(keypoints) and reset()
 export default function wrapDetector(detector, opts = {}) {
-  const { smoothWindow = 5, consecutive = 4 } = opts;
-  // store last angles or last booleans per detector - we will use angle smoothing inside detector by passing smoothed angles
+  // REDUCED DEFAULTS: 
+  // smoothWindow=3 (smoother angles), consecutive=2 (faster state change)
+  const { smoothWindow = 3, consecutive = 2 } = opts; 
+  
   let frameBuffer = [];
   let stableCount = 0;
   let lastStableState = null;
+  let lastStableOut = {}; // Store the last output that was considered stable
 
   return {
     update: (keypoints) => {
-      // call detector temporarily to get raw info but detector implementations should return measurable numeric field (e.g., elbowAngle or kneeAngle)
       const out = detector.update(keypoints) || {};
-      // we will choose a representative numeric metric if present
       const metric = out.elbowAngle ?? out.kneeAngle ?? out.bodyAngle ?? out.holdSeconds ?? 0;
 
-      // smoothing buffer
+      // 1. Smoothing
       frameBuffer.push(metric);
       if (frameBuffer.length > smoothWindow) frameBuffer.shift();
       const avg = frameBuffer.reduce((s, v) => s + v, 0) / frameBuffer.length;
 
-      // decide boolean state - detector implementations should set a boolean `active` when in target position.
-      // If they didn't, we fallback to numeric heuristics: active if metric below a threshold in the detector logic.
-      const active = out.active !== undefined ? out.active : (avg < 100); // fallback heuristic
+      // decide boolean state - fallback heuristic
+      const active = out.active !== undefined ? out.active : (avg < 100); 
 
+      // 2. Stability Check
       if (active === lastStableState) {
         stableCount += 1;
       } else {
         stableCount = 1;
         lastStableState = active;
       }
-
-      // only publish state when stableCount >= consecutive
       const stable = stableCount >= consecutive;
+      
+      let finalOut = { ...out };
 
-      // build returned object: prefer detector output but attach smoothed metric and stable flag
-      return { ...out, smoothedMetric: avg, stable };
+      // 3. CRITICAL: Throttle Feedback/Score based on stability
+      if (stable) {
+          // If stable, save the result and allow new feedback/score to pass through
+          lastStableOut = { ...out, smoothedMetric: avg, stable: true }; 
+      } else {
+          // If UNSTABLE, suppress continuous feedback and score changes 
+          // by passing the last stable values, preventing flicker and lag
+          finalOut = {
+              ...out,
+              feedback: lastStableOut.feedback || "Adjust Pose",
+              score: lastStableOut.score || 0
+          };
+      }
+      
+      // Merge with the calculated stability flag
+      return { ...finalOut, smoothedMetric: avg, stable };
     },
     reset: () => {
       frameBuffer = [];
       stableCount = 0;
       lastStableState = null;
+      lastStableOut = {}; // Reset stable output buffer
       detector.reset && detector.reset();
     }
   };
