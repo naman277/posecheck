@@ -1,5 +1,6 @@
+// frontend/src/App.jsx
 import React from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route } from "react-router-dom";
 import Navbar from "./components/Navbar";
 import Home from "./pages/Home";
 import Login from "./pages/Login";
@@ -10,11 +11,11 @@ import Sessions from "./pages/Sessions";
 import Learn from "./pages/Learn";
 import Profile from "./pages/Profile";
 import Register from "./pages/Register";
-
-
+import RequireAuth from "./components/RequireAuth"; // <-- ADDED: Import RequireAuth
 
 function App() {
-  const token = localStorage.getItem("token");
+  // REMOVE: const token = localStorage.getItem("token"); 
+  // All auth logic is now handled by RequireAuth and AuthProvider.
 
   return (
     <div className="app-root" style={{ fontFamily: "Inter, Arial, sans-serif" }}>
@@ -22,14 +23,16 @@ function App() {
       <main style={{ padding: 20 }}>
         <Routes>
           <Route path="/" element={<Home />} />
-          <Route path="/login" element={token ? <Navigate to="/dashboard" /> : <Login />} />
+          <Route path="/login" element={<Login />} /> 
+          <Route path="/register" element={<Register />} />
           <Route path="/learn" element={<Learn />} />
           <Route path="/profile" element={<Profile />} />
-          <Route path="/dashboard" element={token ? <Dashboard /> : <Navigate to="/login" />} />
-          <Route path="/sessions/:id" element={<SessionDetail />} />
-          <Route path="/workout" element={token ? <Workout /> : <Navigate to="/login" />} />
-          <Route path="/register" element={<Register />} />
-          <Route path="/sessions" element={token ? <Sessions /> : <Navigate to="/login" />} />
+
+          {/* PROTECTED ROUTES: Wrap these with RequireAuth */}
+          <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
+          <Route path="/workout" element={<RequireAuth><Workout /></RequireAuth>} />
+          <Route path="/sessions" element={<RequireAuth><Sessions /></RequireAuth>} />
+          <Route path="/sessions/:id" element={<RequireAuth><SessionDetail /></RequireAuth>} />
         </Routes>
       </main>
     </div>
