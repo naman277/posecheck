@@ -14,51 +14,34 @@ import { hasEnoughPose, hasEnoughUpperBody } from "../core/frameUtils";
 export default function Workout() {
   const [exercise, setExercise] = useState("bicep");
   const [running, setRunning] = useState(false);
-  const [reps, setReps] = useState(0); 
-  const lastRecordedRepRef = useRef(0);
-  const [feedback, setFeedback] = useState(""); 
-  const [score, setScore] = useState(0); 
+  const [reps, setReps] = useState(0);
+  const lastRecordedRepRef = useRef(0); // avoid duplicate perRep entries
+  const [feedback, setFeedback] = useState("");
+  const [score, setScore] = useState(0);
   const [perRep, setPerRep] = useState([]); 
   const detectorRef = useRef(null);
   const currentExerciseRef = useRef(exercise);
+  const lastRepsRef = useRef(0);
   const startTimeRef = useRef(null);
-  const [voiceEnabled, setVoiceEnabled] = useState(true);
+const [voiceEnabled, setVoiceEnabled] = useState(true);
 
-  // 🛠️ THROTTLING REFS: Holds the fastest, unstable values from handleResults
-  const unstableFeedbackRef = useRef(""); 
-  const unstableScoreRef = useRef(0);
-  const unstableRepsRef = useRef(0); 
-
-  // 1. THROTTLING EFFECT: Update all continuous display states at a steady rate
   useEffect(() => {
-    const intervalId = setInterval(() => {
-      // These setters run every 80ms, independent of the camera frame rate
-      setFeedback(unstableFeedbackRef.current);
-      setScore(unstableScoreRef.current);
-      setReps(unstableRepsRef.current); 
-    }, 80); // 80ms for a smooth ~12.5 updates per second
+  if (!voiceEnabled) return;       // ⬅ toggle check
+  if (!perRep || perRep.length === 0) return;
 
-    return () => clearInterval(intervalId);
-  }, []); // Run ONLY ONCE on mount
+  const lastIndex = perRep.length;
+  const text = `Rep ${lastIndex}`;
 
-  // Voice feedback logic (must remain dependent on perRep state change)
-  useEffect(() => {
-    if (!voiceEnabled) return; 
-    if (!perRep || perRep.length === 0) return;
-
-    const lastIndex = perRep.length;
-    const text = `Rep ${lastIndex}`;
-
-    try {
-      const utter = new SpeechSynthesisUtterance(text);
-      utter.lang = "en-US";
-      utter.rate = 0.95;
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.speak(utter);
-    } catch (e) {
-      console.warn("Speech not supported:", e);
-    }
-  }, [perRep, voiceEnabled]);
+  try {
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = "en-US";
+    utter.rate = 0.95;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utter);
+  } catch (e) {
+    console.warn("Speech not supported:", e);
+  }
+}, [perRep, voiceEnabled]);   // ⬅ add voiceEnabled here
 
 
   function initDetector(name) {
@@ -75,15 +58,11 @@ export default function Workout() {
     if (!running) {
       detectorRef.current = initDetector(exercise);
       currentExerciseRef.current = exercise;
-      // Reset all states and refs
       setReps(0);
-      unstableRepsRef.current = 0; 
       setFeedback("");
-      unstableFeedbackRef.current = ""; 
       setScore(0);
-      unstableScoreRef.current = 0; 
       setPerRep([]);
-      lastRecordedRepRef.current = 0;
+      lastRepsRef.current = 0;
     }
   }, [exercise]);
 
@@ -99,18 +78,18 @@ export default function Workout() {
     if (!running) return;
 
     if (!keypoints || keypoints.length === 0) {
-      unstableFeedbackRef.current = "No pose detected"; // Write to ref
+      setFeedback("No pose detected");
       return;
     }
 
     if (exercise === "bicep") {
       if (!hasEnoughUpperBody(keypoints, canvasWidth, canvasHeight)) {
-        unstableFeedbackRef.current = "Bring your upper body into frame"; // Write to ref
+        setFeedback("Bring your upper body into frame");
         return;
       }
     } else {
       if (!hasEnoughPose(keypoints, canvasWidth, canvasHeight)) {
-        unstableFeedbackRef.current = "Move whole body into frame"; // Write to ref
+        setFeedback("Move whole body into frame");
         return;
       }
     }
@@ -123,46 +102,41 @@ export default function Workout() {
 
     try {
       const out = detectorRef.current.update(keypoints) || {};
-      
-      // Reps Logic: Unthrottled update of Reps data
-      if (out.reps !== undefined) {
-        const newReps = out.reps;
+      // update UI states
+      // record reps only when the detector reports a strictly higher rep count
+// inside handleResults() — the guarded recording block
+if (out.reps !== undefined) {
+  const newReps = out.reps;
 
-        if (newReps > lastRecordedRepRef.current) {
-          const repScore = (out.meta && out.meta.repScore) ?? out.score ?? 0;
-          const now = new Date();
-          const repEntry = {
-            timestamp: now.toISOString(),
-            score: repScore,
-            meta: out.meta ?? {}
-          };
+  if (newReps > lastRecordedRepRef.current) {
+    const repScore = (out.meta && out.meta.repScore) ?? out.score ?? 0;
+    const now = new Date();
+    const repEntry = {
+      timestamp: now.toISOString(),
+      score: repScore,
+      meta: out.meta ?? {}
+    };
 
-          // IMMEDIATE STATE UPDATE: Triggers voice effect and perRep display
-          setPerRep(prev => [...prev, repEntry]); 
-          
-          unstableRepsRef.current = newReps; // Update rep ref for display
-          lastRecordedRepRef.current = newReps;
+    setPerRep(prev => [...prev, repEntry]);
+    setReps(newReps);
+    lastRecordedRepRef.current = newReps;
 
-          console.log("Recorded new rep:", newReps, "meta:", repEntry.meta);
-        } else {
-          // Update unstable rep ref for live display changes
-          unstableRepsRef.current = newReps; 
-        }
-      }
+    console.log("Recorded new rep:", newReps, "meta:", repEntry.meta);
+  } else {
+    if (newReps !== reps) setReps(newReps);
+  }
+}
 
 
       if (out.holdSeconds !== undefined) {
-        // Continuous hold time updates the unstable rep ref
-        unstableRepsRef.current = out.holdSeconds;
+        // use holdSeconds for plank-like exercises
+        setReps(out.holdSeconds);
       }
-      
-      // 🛠️ THROTTLED UPDATES: Write all continuous feedback/score data to unstable refs.
-      if (out.feedback) unstableFeedbackRef.current = out.feedback;
-      if (out.score !== undefined) unstableScoreRef.current = Math.round(out.score); 
-
+      if (out.feedback) setFeedback(out.feedback);
+      if (out.score !== undefined) setScore(Math.round(out.score));
     } catch (err) {
       console.error("Detector update error:", err);
-      unstableFeedbackRef.current = "Detection error";
+      setFeedback("Detection error");
     }
   }
 
@@ -170,28 +144,21 @@ export default function Workout() {
     if (running) {
       setRunning(false);
       setFeedback("Stopped");
-      unstableFeedbackRef.current = "Stopped";
     } else {
       detectorRef.current = initDetector(exercise);
       currentExerciseRef.current = exercise;
       detectorRef.current.reset?.();
-      
-      // Reset all states and refs
       setReps(0);
-      unstableRepsRef.current = 0;
       setFeedback("Starting...");
-      unstableFeedbackRef.current = "Starting...";
       setScore(0);
-      unstableScoreRef.current = 0;
       setPerRep([]);
-      lastRecordedRepRef.current = 0;
+      lastRepsRef.current = 0;
       startTimeRef.current = Date.now();
       setRunning(true);
     }
   }
 
- // saveSession function remains the same
-
+ // replace your existing saveSession() in frontend/src/pages/Workout.jsx with this
 async function saveSession() {
   try {
     const token = localStorage.getItem("token");
@@ -226,7 +193,7 @@ async function saveSession() {
       duration,
       score: sessionScore,
       details: { feedback },
-      perRep 
+      perRep // already objects with timestamp, score, meta
     };
 
     console.log("Saving session payload:", body);
@@ -259,7 +226,6 @@ async function saveSession() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-white p-4 rounded shadow">
-          {/* CRITICAL OPTIMIZATION: Set processEvery to 4 to reduce AI processing load by 75% */}
           <PoseEngine onResults={handleResults} processEvery={4} width={640} height={480} />
         </div>
 
