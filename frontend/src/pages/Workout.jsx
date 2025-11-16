@@ -1,10 +1,10 @@
 // frontend/src/pages/Workout.jsx
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import PoseEngine from "../core/PoseEngine";
+import wrapDetector from "../core/detectorWrapper"; 
 import createBicepDetector from "../exercises/bicepCurl";
 import createSquatDetector from "../exercises/squat";
 import createPushUpDetector from "../exercises/pushUp";
-import wrapDetector from "../core/detectorWrapper";
 import createLungeDetector from "../exercises/lunge";
 import ExerciseInstructions from "../components/ExerciseInstructions";
 import createPlankDetector from "../exercises/plank";
@@ -16,19 +16,15 @@ export default function Workout() {
   const [exercise, setExercise] = useState("bicep");
   const [running, setRunning] = useState(false);
   const [reps, setReps] = useState(0); 
-  const lastRecordedRepRef = useRef(0);
   const [feedback, setFeedback] = useState(""); 
   const [score, setScore] = useState(0); 
   const [perRep, setPerRep] = useState([]); 
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
+
+  const lastRecordedRepRef = useRef(0);
   const detectorRef = useRef(null);
   const currentExerciseRef = useRef(exercise);
   const startTimeRef = useRef(null);
-  const [voiceEnabled, setVoiceEnabled] = useState(true);
-
-  // 🛠️ THROTTLING REFS: Holds the fastest, unstable values from handleResults
- 
-  // THROTTLING EFFECT: Update all continuous display states at a steady rate
-
 
   // Voice feedback logic
   useEffect(() => {
@@ -42,16 +38,16 @@ export default function Workout() {
       const utter = new SpeechSynthesisUtterance(text);
       utter.lang = "en-US";
       utter.rate = 0.95;
-      window.speechSynthesis.cancel();
+      window.speechSynthesis.cancel(); // Stop previous speech
       window.speechSynthesis.speak(utter);
     } catch (e) {
       console.warn("Speech not supported:", e);
     }
   }, [perRep, voiceEnabled]);
 
-
-const initDetector = useCallback((name) => {
-      let detector;
+  // Initialize detector with wrapper for fast feedback
+  const initDetector = useCallback((name) => {
+    let detector;
     if (name === "bicep") detector = createBicepDetector();
     else if (name === "squat") detector = createSquatDetector();
     else if (name === "pushup") detector = createPushUpDetector();
@@ -60,15 +56,14 @@ const initDetector = useCallback((name) => {
     else if (name === "tree") detector = createTreePoseDetector();
     else detector = createBicepDetector();
     
-    // Wrap the raw detector to apply the fast-feedback logic
-   return wrapDetector(detector, { smoothWindow: 3, consecutive: 2 });
-}, []);
+    return wrapDetector(detector, { smoothWindow: 3, consecutive: 2 });
+  }, []);
 
+  // Reset state when exercise changes
   useEffect(() => {
     if (!running) {
       detectorRef.current = initDetector(exercise);
       currentExerciseRef.current = exercise;
-      // Reset all states and refs
       setReps(0);
       setFeedback("");
       setScore(0);
@@ -77,6 +72,7 @@ const initDetector = useCallback((name) => {
     }
   }, [exercise, running, initDetector]);
 
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       detectorRef.current?.reset?.();
@@ -84,75 +80,96 @@ const initDetector = useCallback((name) => {
     };
   }, []);
 
-  // core handler receives keypoints mapped to MediaPipe indices
-  const handleResults = useCallback(({ keypoints, canvasWidth, canvasHeight }) => {
-  if (!running) return;
+  // --- STABLE POSE LOGIC START ---
+  // We use a ref to hold the latest logic function so 'onResultsStable' never changes
+  const handleLogicRef = useRef(null);
 
-  if (!keypoints || keypoints.length === 0) {
-    setFeedback("No pose detected"); // <--
-    return;
-  }
+  function handlePoseLogic({ keypoints, canvasWidth, canvasHeight }) {
+    if (!running) return;
 
-  if (exercise === "bicep") {
-    if (!hasEnoughUpperBody(keypoints, canvasWidth, canvasHeight)) {
-      setFeedback("Bring your upper body into frame"); // <--
+    if (!keypoints || keypoints.length === 0) {
+      setFeedback("No pose detected");
       return;
     }
-  } else {
-    if (!hasEnoughPose(keypoints, canvasWidth, canvasHeight)) {
-      setFeedback("Move whole body into frame"); // <--
-      return;
-    }
-  }
 
-  // ... (detector init logic remains same) ...
-
-  try {
-    const out = detectorRef.current.update(keypoints) || {};
-
-    // Reps Logic: Unthrottled update of Reps data
-    if (out.reps !== undefined) {
-      const newReps = out.reps;
-
-      if (newReps > lastRecordedRepRef.current) {
-        // ... (rep entry logic remains same) ...
-
-        setPerRep(prev => [...prev, repEntry]); 
-
-        setReps(newReps); // <--
-        lastRecordedRepRef.current = newReps;
-
-        // ... (console.log remains same) ...
-      } else {
-        setReps(newReps); // <--
+    if (exercise === "bicep") {
+      if (!hasEnoughUpperBody(keypoints, canvasWidth, canvasHeight)) {
+        setFeedback("Bring your upper body into frame");
+        return;
+      }
+    } else {
+      if (!hasEnoughPose(keypoints, canvasWidth, canvasHeight)) {
+        setFeedback("Move whole body into frame");
+        return;
       }
     }
 
-
-    if (out.holdSeconds !== undefined) {
-      setReps(out.holdSeconds); // <--
+    // Re-init detector if missing or mismatched
+    if (!detectorRef.current || currentExerciseRef.current !== exercise) {
+      detectorRef.current = initDetector(exercise);
+      currentExerciseRef.current = exercise;
+      try { detectorRef.current.reset?.(); } catch(e) { /* ignore */ }
     }
 
-    // 🛠️ DIRECT UPDATES: Set state directly for instant feedback.
-    if (out.feedback) setFeedback(out.feedback); // <--
-    if (out.score !== undefined) setScore(Math.round(out.score)); // <--
+    try {
+      const out = detectorRef.current.update(keypoints) || {};
+      
+      // Reps Logic
+      if (out.reps !== undefined) {
+        const newReps = out.reps;
 
-  } catch (err) {
-    console.error("Detector update error:", err);
-    setFeedback("Detection error"); // <--
+        // Only record if rep count INCREASED
+        if (newReps > lastRecordedRepRef.current) {
+          const repScore = (out.meta && out.meta.repScore) ?? out.score ?? 0;
+          const now = new Date();
+          const repEntry = {
+            timestamp: now.toISOString(),
+            score: repScore,
+            meta: out.meta ?? {}
+          };
+
+          setPerRep(prev => [...prev, repEntry]);
+          setReps(newReps);
+          lastRecordedRepRef.current = newReps;
+
+          console.log("Recorded new rep:", newReps);
+        } else {
+          // Ensure UI stays in sync even if not a new rep
+          setReps(newReps); 
+        }
+      }
+
+      if (out.holdSeconds !== undefined) {
+        setReps(out.holdSeconds);
+      }
+      
+      // Direct updates for instant feedback
+      if (out.feedback) setFeedback(out.feedback);
+      if (out.score !== undefined) setScore(Math.round(out.score));
+
+    } catch (err) {
+      console.error("Detector update error:", err);
+      setFeedback("Detection error");
+    }
   }
-}, [running, exercise, initDetector]);
 
-const handleExerciseChange = useCallback((e) => {
-  setExercise(e.target.value);
-}, []); // setExercise is stable, so empty array is fine
+  // Update the ref every render to point to the latest state/logic
+  useEffect(() => {
+    handleLogicRef.current = handlePoseLogic;
+  });
 
-const handleVoiceChange = useCallback((e) => {
-  setVoiceEnabled(e.target.checked);
-}, []); // setVoiceEnabled is stable, so empty array is fine
+  // This is the ONLY function passed to PoseEngine. It NEVER changes identity.
+  // This prevents PoseEngine from restarting the camera on every rep.
+  const onResultsStable = useCallback((data) => {
+    if (handleLogicRef.current) {
+      handleLogicRef.current(data);
+    }
+  }, []);
+  // --- STABLE POSE LOGIC END ---
 
-const toggle = useCallback(() => {
-      if (running) {
+
+  const toggle = useCallback(() => {
+    if (running) {
       setRunning(false);
       setFeedback("Stopped");
     } else {
@@ -160,7 +177,6 @@ const toggle = useCallback(() => {
       currentExerciseRef.current = exercise;
       detectorRef.current.reset?.();
       
-      // Reset all states and refs
       setReps(0);
       setFeedback("Starting...");
       setScore(0);
@@ -171,53 +187,50 @@ const toggle = useCallback(() => {
     }
   }, [running, exercise, initDetector]);
 
-
-const saveSession = useCallback(async () => {
+  const saveSession = useCallback(async () => {
     try {
-    const token = localStorage.getItem("token");
+      const token = localStorage.getItem("token");
+      const duration = startTimeRef.current ? Math.round((Date.now() - startTimeRef.current) / 1000) : 0;
 
-    // duration (seconds)
-    const duration = startTimeRef.current ? Math.round((Date.now() - startTimeRef.current) / 1000) : 0;
+      let sessionScore = 0;
+      if (perRep && perRep.length > 0) {
+        const repScores = perRep.map(r => {
+          if (r.meta && typeof r.meta.repScore === "number") return r.meta.repScore;
+          if (typeof r.score === "number") return r.score;
+          return 0;
+        });
+        const sum = repScores.reduce((s, x) => s + x, 0);
+        sessionScore = Math.round(sum / repScores.length);
+      } else {
+        sessionScore = Math.round(score || 0);
+      }
 
-    // compute session score from perRep meta.repScore if available
-    let sessionScore = 0;
-    if (perRep && perRep.length > 0) {
-      // collect rep scores from meta.repScore, or fallback to rep.score
-      const repScores = perRep.map(r => {
-        if (r.meta && typeof r.meta.repScore === "number") return r.meta.repScore;
-        if (typeof r.score === "number") return r.score;
-        return 0;
-      });
-      const sum = repScores.reduce((s, x) => s + x, 0);
-      sessionScore = Math.round(sum / repScores.length);
-    } else {
-      // fallback to UI score state (if any)
-      sessionScore = Math.round(score || 0);
+      const body = {
+        exercise: exercise === "bicep" ? "Bicep Curl" :
+                  exercise === "squat" ? "Squat" :
+                  exercise === "pushup" ? "Push-Ups" :
+                  exercise === "lunge" ? "Lunges" :
+                  exercise === "plank" ? "Plank" :
+                  exercise === "tree" ? "Tree Pose" : exercise,
+        reps,
+        duration,
+        score: sessionScore,
+        details: { feedback },
+        perRep 
+      };
+
+      console.log("Saving session payload:", body);
+      await axios.post("/api/sessions", body, { headers: { Authorization: `Bearer ${token}` } });
+      alert("Session saved");
+    } catch (err) {
+      console.error("Save session failed:", err);
+      alert("Save failed: " + (err.response?.data?.msg || err.message));
     }
+  }, [exercise, reps, feedback, perRep, score]);
 
-    const body = {
-      exercise: exercise === "bicep" ? "Bicep Curl" :
-                exercise === "squat" ? "Squat" :
-                exercise === "pushup" ? "Push-Ups" :
-                exercise === "lunge" ? "Lunges" :
-                exercise === "plank" ? "Plank" :
-                exercise === "tree" ? "Tree Pose" : exercise,
-      reps,
-      duration,
-      score: sessionScore,
-      details: { feedback },
-      perRep 
-    };
-
-    console.log("Saving session payload:", body);
-    await axios.post("/api/sessions", body, { headers: { Authorization: `Bearer ${token}` } });
-    alert("Session saved");
-  } catch (err) {
-    console.error("Save session failed:", err);
-    alert("Save failed: " + (err.response?.data?.msg || err.message));
-  }
-}, [exercise, reps, feedback, perRep, score, startTimeRef]);
-
+  // Stable handlers for inputs
+  const handleExerciseChange = useCallback((e) => setExercise(e.target.value), []);
+  const handleVoiceChange = useCallback((e) => setVoiceEnabled(e.target.checked), []);
 
   return (
     <div className="max-w-4xl mx-auto py-6">
@@ -231,7 +244,9 @@ const saveSession = useCallback(async () => {
           <option value="tree">Tree Pose (yoga)</option>
         </select>
 
-        <button onClick={toggle} className="px-4 py-2 bg-indigo-600 text-white rounded">{running ? "Stop" : "Start"}</button>
+        <button onClick={toggle} className="px-4 py-2 bg-indigo-600 text-white rounded">
+          {running ? "Stop" : "Start"}
+        </button>
         <button onClick={saveSession} className="px-3 py-1 border rounded">Save Session</button>
 
         <div className="ml-auto text-sm text-slate-600">Reps: <strong>{reps}</strong></div>
@@ -239,17 +254,12 @@ const saveSession = useCallback(async () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-white p-4 rounded shadow">
-          {/* CRITICAL OPTIMIZATION: Process only every 4th frame */}
-          <PoseEngine onResults={handleResults} processEvery={1} width={640} height={480} />
+          {/* processEvery={1} for max smoothness, since we fixed the lag logic */}
+          <PoseEngine onResults={onResultsStable} processEvery={1} width={640} height={480} />
         </div>
 
         <div className="bg-white p-4 rounded shadow workout-right">
-          <h3 className="font-semibold">{exercise === "bicep" ? "Bicep Curl" :
-                                         exercise === "squat" ? "Squat" :
-                                         exercise === "pushup" ? "Push-Ups" :
-                                         exercise === "lunge" ? "Lunges" :
-                                         exercise === "plank" ? "Plank" :
-                                         exercise === "tree" ? "Tree Pose" : exercise}</h3>
+          <h3 className="font-semibold">{exercise.charAt(0).toUpperCase() + exercise.slice(1)}</h3>
 
           <div className="text-sm text-slate-500">Status: {running ? "Running" : "Stopped"}</div>
           <div className="pt-2">
@@ -261,15 +271,15 @@ const saveSession = useCallback(async () => {
             <div className="text-sm text-slate-600">Score</div>
             <div className="text-xl font-bold">{Math.round(score)}</div>
           </div>
+          
           <div className="mt-3 flex items-center gap-2 text-sm">
-  <input
-    type="checkbox"
-    checked={voiceEnabled}
-    onChange={handleVoiceChange}
-  />
-  <span>Voice Rep Count</span>
-</div>
-
+            <input
+              type="checkbox"
+              checked={voiceEnabled}
+              onChange={handleVoiceChange}
+            />
+            <span>Voice Rep Count</span>
+          </div>
 
           <div className="pt-4">
             <div className="text-sm text-slate-600">Per-rep details</div>
@@ -288,9 +298,9 @@ const saveSession = useCallback(async () => {
 
         </div>
       </div>
-             <div className="mt-3">
-    <ExerciseInstructions exercise={exercise} />
-  </div>
+      <div className="mt-3">
+        <ExerciseInstructions exercise={exercise} />
+      </div>
     </div>
   );
 }
