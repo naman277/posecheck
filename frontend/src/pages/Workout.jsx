@@ -16,8 +16,8 @@ export default function Workout() {
   const [running, setRunning] = useState(false);
   const [reps, setReps] = useState(0);
   const lastRecordedRepRef = useRef(0);
-  const [feedback, setFeedback] = useState(""); // <-- NOW UPDATED BY THROTTLER
-  const [score, setScore] = useState(0);       // <-- NOW UPDATED BY THROTTLER
+  const [feedback, setFeedback] = useState("");
+  const [score, setScore] = useState(0);
   const [perRep, setPerRep] = useState([]); 
   const detectorRef = useRef(null);
   const currentExerciseRef = useRef(exercise);
@@ -25,30 +25,38 @@ export default function Workout() {
   const startTimeRef = useRef(null);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
 
-  // 🛠️ THROTTLING MECHANISM ADDED HERE
-  const unstableFeedbackRef = useRef(""); // Holds the latest feedback without forcing re-render
-  const unstableScoreRef = useRef(0);     // Holds the latest score without forcing re-render
+  // 🛠️ THROTTLING REFS: Holds the fastest, unstable values
+  const unstableFeedbackRef = useRef(""); 
+  const unstableScoreRef = useRef(0);
 
+  // 1. RE-IMPLEMENTED THROTTLING: Set up only once, updates state every 80ms (12.5 FPS)
   useEffect(() => {
-    // This interval will update the official state every 150ms.
     const intervalId = setInterval(() => {
-      // Only update state if the value has actually changed to minimize re-renders
-      if (feedback !== unstableFeedbackRef.current) {
-        setFeedback(unstableFeedbackRef.current);
-      }
-      if (score !== unstableScoreRef.current) {
-        setScore(unstableScoreRef.current);
-      }
-    }, 150); // Update max 6-7 times per second (150ms throttle)
+      // Use functional state updates to avoid dependency issues (though not strictly necessary here)
+      setFeedback(prev => unstableFeedbackRef.current);
+      setScore(prev => unstableScoreRef.current);
+    }, 80); // ⬅️ Adjusted throttle to 80ms (faster, smoother UI without frame-level flicker)
 
     return () => clearInterval(intervalId);
-  }, [feedback, score]); // Depend on feedback/score to allow cleanup function access to latest state values
+  }, []); // ⬅️ EMPTY dependency array ensures this runs ONLY ONCE
 
-  // ... (rest of useEffect for voice output remains the same)
+  // ... (Rep Voice Feedback useEffect remains the same)
   useEffect(() => {
     if (!voiceEnabled) return;
     if (!perRep || perRep.length === 0) return;
-    // ...
+
+    const lastIndex = perRep.length;
+    const text = `Rep ${lastIndex}`;
+
+    try {
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.lang = "en-US";
+      utter.rate = 0.95;
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utter);
+    } catch (e) {
+      console.warn("Speech not supported:", e);
+    }
   }, [perRep, voiceEnabled]);
 
 
@@ -86,18 +94,18 @@ export default function Workout() {
     if (!running) return;
 
     if (!keypoints || keypoints.length === 0) {
-      unstableFeedbackRef.current = "No pose detected"; // <-- THROTTLED REF UPDATE
+      unstableFeedbackRef.current = "No pose detected";
       return;
     }
 
     if (exercise === "bicep") {
       if (!hasEnoughUpperBody(keypoints, canvasWidth, canvasHeight)) {
-        unstableFeedbackRef.current = "Bring your upper body into frame"; // <-- THROTTLED REF UPDATE
+        unstableFeedbackRef.current = "Bring your upper body into frame";
         return;
       }
     } else {
       if (!hasEnoughPose(keypoints, canvasWidth, canvasHeight)) {
-        unstableFeedbackRef.current = "Move whole body into frame"; // <-- THROTTLED REF UPDATE
+        unstableFeedbackRef.current = "Move whole body into frame";
         return;
       }
     }
@@ -111,10 +119,11 @@ export default function Workout() {
     try {
       const out = detectorRef.current.update(keypoints) || {};
       
-      // Handle Reps (must be immediate to capture sequence correctly)
+      // REPS AND PER-REP DATA MUST BE UNTHROTTLED (Immediate State Update)
       if (out.reps !== undefined) {
         const newReps = out.reps;
 
+        // Rep updates are driven by the newReps > lastRecordedRepRef.current check
         if (newReps > lastRecordedRepRef.current) {
           const repScore = (out.meta && out.meta.repScore) ?? out.score ?? 0;
           const now = new Date();
@@ -124,33 +133,36 @@ export default function Workout() {
             meta: out.meta ?? {}
           };
 
+          // Reps and perRep must be set immediately to track the progress accurately
           setPerRep(prev => [...prev, repEntry]);
           setReps(newReps);
           lastRecordedRepRef.current = newReps;
 
           console.log("Recorded new rep:", newReps, "meta:", repEntry.meta);
         } else {
+          // If rep count decreases (unlikely) or changes, set it immediately
           if (newReps !== reps) setReps(newReps);
         }
       }
 
 
       if (out.holdSeconds !== undefined) {
-        // use holdSeconds for plank-like exercises
+        // use holdSeconds for plank-like exercises, this is also a type of rep and needs immediate update
         setReps(out.holdSeconds);
       }
       
-      // 🛠️ THROTTLED UPDATES: Write directly to refs instead of calling setters
+      // FEEDBACK AND SCORE: Write to UNSTABLE REFS only. The useEffect interval will update state.
       if (out.feedback) unstableFeedbackRef.current = out.feedback;
       if (out.score !== undefined) unstableScoreRef.current = Math.round(out.score); 
 
     } catch (err) {
       console.error("Detector update error:", err);
-      unstableFeedbackRef.current = "Detection error"; // <-- THROTTLED REF UPDATE
+      unstableFeedbackRef.current = "Detection error";
     }
   }
 
   function toggle() {
+    // ... (toggle function remains the same)
     if (running) {
       setRunning(false);
       setFeedback("Stopped");
@@ -236,7 +248,8 @@ async function saveSession() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-white p-4 rounded shadow">
-          <PoseEngine onResults={handleResults} processEvery={4} width={640} height={480} />
+          {/* We set processEvery to 4 to ensure the AI logic only runs on 1/4 of the video frames, reducing CPU load */}
+          <PoseEngine onResults={handleResults} processEvery={4} width={640} height={480} /> 
         </div>
 
         <div className="bg-white p-4 rounded shadow workout-right">
