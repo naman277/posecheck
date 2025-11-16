@@ -141,7 +141,7 @@ const initDetector = useCallback((name) => {
     console.error("Detector update error:", err);
     setFeedback("Detection error"); // <--
   }
-}
+}, [running, exercise, initDetector]);
 
   function toggle() {
     if (running) {
@@ -161,7 +161,7 @@ const initDetector = useCallback((name) => {
       startTimeRef.current = Date.now();
       setRunning(true);
     }
-  }, [running, exercise, initDetector]);
+  }
 
 
 const saveSession = useCallback(async () => {
