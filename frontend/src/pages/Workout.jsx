@@ -1,5 +1,5 @@
 // frontend/src/pages/Workout.jsx
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import PoseEngine from "../core/PoseEngine";
 import createBicepDetector from "../exercises/bicepCurl";
 import createSquatDetector from "../exercises/squat";
@@ -164,8 +164,8 @@ export default function Workout() {
   }
 
 
-async function saveSession() {
-  try {
+const saveSession = useCallback(async () => {
+    try {
     const token = localStorage.getItem("token");
 
     // duration (seconds)
@@ -208,7 +208,7 @@ async function saveSession() {
     console.error("Save session failed:", err);
     alert("Save failed: " + (err.response?.data?.msg || err.message));
   }
-}
+}, [exercise, reps, feedback, perRep, score, startTimeRef]);
 
 
   return (
