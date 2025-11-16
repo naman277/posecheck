@@ -36,7 +36,7 @@ export default function Workout() {
       setFeedback(unstableFeedbackRef.current);
       setScore(unstableScoreRef.current);
       setReps(unstableRepsRef.current); 
-    }, 80); // 80ms for a smooth ~12.5 updates per second
+    }, 15); // 80ms for a smooth ~12.5 updates per second
 
     return () => clearInterval(intervalId);
   }, []); // Run ONLY ONCE on mount
