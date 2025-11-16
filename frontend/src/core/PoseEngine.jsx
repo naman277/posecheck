@@ -63,20 +63,19 @@ export default function PoseEngine({ onResults, processEvery = 1, width = 640, h
     poseRef.current = pose;
 
     const camera = new Camera(videoRef.current, {
-      onFrame: async () => {
+     onFrame: async () => {
         frameCount.current += 1;
-        // default: process every frame (fast but less optimal on low CPUs)
-        if (processEvery <= 1 || frameCount.current % processEvery === 0) {
+        // If the frame count is a multiple of processEvery, send the frame to the pose model.
+        if (frameCount.current % processEvery === 0) {
           await pose.send({ image: videoRef.current });
         } else {
-          const canvas = canvasRef.current;
-          if (!canvas) return;
-          const ctx = canvas.getContext("2d");
-          if (videoRef.current && videoRef.current.videoWidth) {
-            canvas.width = videoRef.current.videoWidth;
-            canvas.height = videoRef.current.videoHeight;
-          }
-          ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+          // If the frame is skipped, we don't draw it here. 
+          // We let the last processed frame/drawing persist.
+          // If we tried to draw every frame here, it would draw the raw video feed, 
+          // but the next `pose.onResults` (which draws the landmarks) is still coming 
+          // asynchronously, leading to flicker/stutter.
+          // We rely purely on pose.onResults for rendering the canvas.
+          // If processEvery is 1 (default), it runs on every frame.
         }
       },
       width,
