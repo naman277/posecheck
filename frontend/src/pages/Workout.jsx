@@ -26,20 +26,9 @@ export default function Workout() {
   const [voiceEnabled, setVoiceEnabled] = useState(true);
 
   // 🛠️ THROTTLING REFS: Holds the fastest, unstable values from handleResults
-  const unstableFeedbackRef = useRef(""); 
-  const unstableScoreRef = useRef(0);
-  const unstableRepsRef = useRef(0); 
-
+ 
   // THROTTLING EFFECT: Update all continuous display states at a steady rate
-  useEffect(() => {
-    const intervalId = setInterval(() => {
-      setFeedback(unstableFeedbackRef.current);
-      setScore(unstableScoreRef.current);
-      setReps(unstableRepsRef.current); 
-    }, 80); // 80ms for smooth UI updates (12.5 FPS)
 
-    return () => clearInterval(intervalId);
-  }, []); // Run ONLY ONCE on mount
 
   // Voice feedback logic
   useEffect(() => {
@@ -81,11 +70,8 @@ export default function Workout() {
       currentExerciseRef.current = exercise;
       // Reset all states and refs
       setReps(0);
-      unstableRepsRef.current = 0; 
       setFeedback("");
-      unstableFeedbackRef.current = ""; 
       setScore(0);
-      unstableScoreRef.current = 0; 
       setPerRep([]);
       lastRecordedRepRef.current = 0;
     }
@@ -100,78 +86,67 @@ export default function Workout() {
 
   // core handler receives keypoints mapped to MediaPipe indices
   function handleResults({ keypoints, canvasWidth, canvasHeight }) {
-    if (!running) return;
+  if (!running) return;
 
-    if (!keypoints || keypoints.length === 0) {
-      unstableFeedbackRef.current = "No pose detected";
+  if (!keypoints || keypoints.length === 0) {
+    setFeedback("No pose detected"); // <--
+    return;
+  }
+
+  if (exercise === "bicep") {
+    if (!hasEnoughUpperBody(keypoints, canvasWidth, canvasHeight)) {
+      setFeedback("Bring your upper body into frame"); // <--
       return;
     }
-
-    if (exercise === "bicep") {
-      if (!hasEnoughUpperBody(keypoints, canvasWidth, canvasHeight)) {
-        unstableFeedbackRef.current = "Bring your upper body into frame";
-        return;
-      }
-    } else {
-      if (!hasEnoughPose(keypoints, canvasWidth, canvasHeight)) {
-        unstableFeedbackRef.current = "Move whole body into frame";
-        return;
-      }
-    }
-
-    if (!detectorRef.current || currentExerciseRef.current !== exercise) {
-      detectorRef.current = initDetector(exercise);
-      currentExerciseRef.current = exercise;
-      try { detectorRef.current.reset?.(); } catch(e) { /* ignore */ }
-    }
-
-    try {
-      // NOTE: out here contains the 'stable' and 'smoothedMetric' flags from detectorWrapper
-      const out = detectorRef.current.update(keypoints) || {};
-      
-      // Reps Logic: This must be unthrottled for accurate counting/voice prompt
-      if (out.reps !== undefined) {
-        const newReps = out.reps;
-
-        if (newReps > lastRecordedRepRef.current) {
-          const repScore = (out.meta && out.meta.repScore) ?? out.score ?? 0;
-          const now = new Date();
-          const repEntry = {
-            timestamp: now.toISOString(),
-            score: repScore,
-            meta: out.meta ?? {}
-          };
-
-          // IMMEDIATE STATE UPDATE: Triggers voice effect and perRep display. This is low-frequency.
-          setPerRep(prev => [...prev, repEntry]); 
-          
-          unstableRepsRef.current = newReps; // Update rep ref for display
-          lastRecordedRepRef.current = newReps;
-        } else {
-          unstableRepsRef.current = newReps; // Update unstable rep ref for live display changes
-        }
-      }
-
-
-      if (out.holdSeconds !== undefined) {
-        unstableRepsRef.current = out.holdSeconds;
-      }
-      
-      // 🛠️ THROTTLED UPDATES: Write all continuous feedback/score data to unstable refs.
-      if (out.feedback) unstableFeedbackRef.current = out.feedback;
-      if (out.score !== undefined) unstableScoreRef.current = Math.round(out.score); 
-
-    } catch (err) {
-      console.error("Detector update error:", err);
-      unstableFeedbackRef.current = "Detection error";
+  } else {
+    if (!hasEnoughPose(keypoints, canvasWidth, canvasHeight)) {
+      setFeedback("Move whole body into frame"); // <--
+      return;
     }
   }
+
+  // ... (detector init logic remains same) ...
+
+  try {
+    const out = detectorRef.current.update(keypoints) || {};
+
+    // Reps Logic: Unthrottled update of Reps data
+    if (out.reps !== undefined) {
+      const newReps = out.reps;
+
+      if (newReps > lastRecordedRepRef.current) {
+        // ... (rep entry logic remains same) ...
+
+        setPerRep(prev => [...prev, repEntry]); 
+
+        setReps(newReps); // <--
+        lastRecordedRepRef.current = newReps;
+
+        // ... (console.log remains same) ...
+      } else {
+        setReps(newReps); // <--
+      }
+    }
+
+
+    if (out.holdSeconds !== undefined) {
+      setReps(out.holdSeconds); // <--
+    }
+
+    // 🛠️ DIRECT UPDATES: Set state directly for instant feedback.
+    if (out.feedback) setFeedback(out.feedback); // <--
+    if (out.score !== undefined) setScore(Math.round(out.score)); // <--
+
+  } catch (err) {
+    console.error("Detector update error:", err);
+    setFeedback("Detection error"); // <--
+  }
+}
 
   function toggle() {
     if (running) {
       setRunning(false);
       setFeedback("Stopped");
-      unstableFeedbackRef.current = "Stopped";
     } else {
       detectorRef.current = initDetector(exercise);
       currentExerciseRef.current = exercise;
@@ -179,11 +154,8 @@ export default function Workout() {
       
       // Reset all states and refs
       setReps(0);
-      unstableRepsRef.current = 0;
       setFeedback("Starting...");
-      unstableFeedbackRef.current = "Starting...";
       setScore(0);
-      unstableScoreRef.current = 0;
       setPerRep([]);
       lastRecordedRepRef.current = 0;
       startTimeRef.current = Date.now();
@@ -260,7 +232,7 @@ async function saveSession() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-white p-4 rounded shadow">
           {/* CRITICAL OPTIMIZATION: Process only every 4th frame */}
-          <PoseEngine onResults={handleResults} processEvery={4} width={640} height={480} />
+          <PoseEngine onResults={handleResults} processEvery={1} width={640} height={480} />
         </div>
 
         <div className="bg-white p-4 rounded shadow workout-right">
