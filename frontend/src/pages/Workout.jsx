@@ -75,7 +75,7 @@ const initDetector = useCallback((name) => {
       setPerRep([]);
       lastRecordedRepRef.current = 0;
     }
-  }, [exercise]);
+  }, [exercise, running, initDetector]);
 
   useEffect(() => {
     return () => {
@@ -143,8 +143,16 @@ const initDetector = useCallback((name) => {
   }
 }, [running, exercise, initDetector]);
 
-  function toggle() {
-    if (running) {
+const handleExerciseChange = useCallback((e) => {
+  setExercise(e.target.value);
+}, []); // setExercise is stable, so empty array is fine
+
+const handleVoiceChange = useCallback((e) => {
+  setVoiceEnabled(e.target.checked);
+}, []); // setVoiceEnabled is stable, so empty array is fine
+
+const toggle = useCallback(() => {
+      if (running) {
       setRunning(false);
       setFeedback("Stopped");
     } else {
@@ -161,7 +169,7 @@ const initDetector = useCallback((name) => {
       startTimeRef.current = Date.now();
       setRunning(true);
     }
-  }
+  }, [running, exercise, initDetector]);
 
 
 const saveSession = useCallback(async () => {
@@ -214,7 +222,7 @@ const saveSession = useCallback(async () => {
   return (
     <div className="max-w-4xl mx-auto py-6">
       <div className="bg-white p-4 rounded shadow mb-4 flex gap-4 items-center">
-        <select value={exercise} onChange={(e) => setExercise(e.target.value)} className="border px-3 py-2 rounded">
+        <select value={exercise} onChange={handleExerciseChange} className="border px-3 py-2 rounded">
           <option value="bicep">Bicep Curl</option>
           <option value="squat">Squat</option>
           <option value="pushup">Push-Ups</option>
@@ -257,7 +265,7 @@ const saveSession = useCallback(async () => {
   <input
     type="checkbox"
     checked={voiceEnabled}
-    onChange={(e) => setVoiceEnabled(e.target.checked)}
+    onChange={handleVoiceChange}
   />
   <span>Voice Rep Count</span>
 </div>
