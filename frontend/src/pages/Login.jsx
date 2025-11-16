@@ -2,7 +2,6 @@
 import React, { useState } from "react";
 import axios from "../utils/api";
 import { useNavigate, Link } from "react-router-dom";
-import { useAuth } from "../auth/AuthProvider"; // 1. Import useAuth hook
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -10,7 +9,6 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
   const navigate = useNavigate();
-  const { login } = useAuth(); // 2. Get the login function from context
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -27,14 +25,19 @@ export default function Login() {
         return;
       }
 
-      // *** FIX: Use the AuthProvider's login function to update state instantly ***
-      login({ token, user }); // This synchronously updates React state (token, user) in AuthProvider.
+      // Persist token + user
+      localStorage.setItem("token", token);
+      if (user) localStorage.setItem("user", JSON.stringify(user));
 
-      // The AuthProvider's useEffect handles writing to localStorage.
-      
-      // Navigate immediately. The router guard (RequireAuth) will now see the
-      // updated state and allow navigation without needing a refresh.
-      navigate("/dashboard");
+      console.log("Login: token stored in localStorage");
+
+      // notify other components in same tab
+      window.dispatchEvent(new Event("token-changed"));
+
+      // tiny delay to ensure listeners and route guards pick up the change
+      setTimeout(() => {
+        navigate("/dashboard");
+      }, 50);
 
     } catch (error) {
       console.error("Login error", error);
