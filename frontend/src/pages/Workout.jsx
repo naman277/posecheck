@@ -50,8 +50,8 @@ export default function Workout() {
   }, [perRep, voiceEnabled]);
 
 
-  function initDetector(name) {
-    let detector;
+const initDetector = useCallback((name) => {
+      let detector;
     if (name === "bicep") detector = createBicepDetector();
     else if (name === "squat") detector = createSquatDetector();
     else if (name === "pushup") detector = createPushUpDetector();
@@ -61,8 +61,8 @@ export default function Workout() {
     else detector = createBicepDetector();
     
     // Wrap the raw detector to apply the fast-feedback logic
-    return wrapDetector(detector, { smoothWindow: 3, consecutive: 2 });
-  }
+   return wrapDetector(detector, { smoothWindow: 3, consecutive: 2 });
+}, []);
 
   useEffect(() => {
     if (!running) {
@@ -85,7 +85,7 @@ export default function Workout() {
   }, []);
 
   // core handler receives keypoints mapped to MediaPipe indices
-  function handleResults({ keypoints, canvasWidth, canvasHeight }) {
+  const handleResults = useCallback(({ keypoints, canvasWidth, canvasHeight }) => {
   if (!running) return;
 
   if (!keypoints || keypoints.length === 0) {
@@ -161,7 +161,7 @@ export default function Workout() {
       startTimeRef.current = Date.now();
       setRunning(true);
     }
-  }
+  }, [running, exercise, initDetector]);
 
 
 const saveSession = useCallback(async () => {
