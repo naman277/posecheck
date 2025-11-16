@@ -8,7 +8,9 @@ dotenv.config();
 connectDB(); // safe: it warns if MONGO_URI is not set
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || '*'
+}));
 app.use(express.json({ limit: '5mb' }));
 
 app.use('/api/auth', require('./routes/auth'));
