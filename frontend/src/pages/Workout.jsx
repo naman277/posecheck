@@ -32,18 +32,18 @@ export default function Workout() {
   // 1. THROTTLING EFFECT: Update all continuous display states at a steady rate
   useEffect(() => {
     const intervalId = setInterval(() => {
-      // These are the frequently changing UI elements that must be throttled
+      // These setters run every 80ms, independent of the camera frame rate
       setFeedback(unstableFeedbackRef.current);
       setScore(unstableScoreRef.current);
-      setReps(unstableRepsRef.current); // Use the ref for continuous update
+      setReps(unstableRepsRef.current); 
     }, 80); // 80ms for a smooth ~12.5 updates per second
 
     return () => clearInterval(intervalId);
   }, []); // Run ONLY ONCE on mount
 
-  // Voice feedback logic (must remain dependent on perRep state change for immediate prompt)
+  // Voice feedback logic (must remain dependent on perRep state change)
   useEffect(() => {
-    if (!voiceEnabled) return;
+    if (!voiceEnabled) return; 
     if (!perRep || perRep.length === 0) return;
 
     const lastIndex = perRep.length;
@@ -75,12 +75,13 @@ export default function Workout() {
     if (!running) {
       detectorRef.current = initDetector(exercise);
       currentExerciseRef.current = exercise;
+      // Reset all states and refs
       setReps(0);
-      unstableRepsRef.current = 0; // Reset ref
+      unstableRepsRef.current = 0; 
       setFeedback("");
-      unstableFeedbackRef.current = ""; // Reset ref
+      unstableFeedbackRef.current = ""; 
       setScore(0);
-      unstableScoreRef.current = 0; // Reset ref
+      unstableScoreRef.current = 0; 
       setPerRep([]);
       lastRecordedRepRef.current = 0;
     }
@@ -96,23 +97,20 @@ export default function Workout() {
   // core handler receives keypoints mapped to MediaPipe indices
   function handleResults({ keypoints, canvasWidth, canvasHeight }) {
     if (!running) return;
-    
-    // 🛠️ All setter calls below are replaced by updates to unstable Refs 
-    // OR immediate state calls that are infrequent (setPerRep).
 
     if (!keypoints || keypoints.length === 0) {
-      unstableFeedbackRef.current = "No pose detected";
+      unstableFeedbackRef.current = "No pose detected"; // Write to ref
       return;
     }
 
     if (exercise === "bicep") {
       if (!hasEnoughUpperBody(keypoints, canvasWidth, canvasHeight)) {
-        unstableFeedbackRef.current = "Bring your upper body into frame";
+        unstableFeedbackRef.current = "Bring your upper body into frame"; // Write to ref
         return;
       }
     } else {
       if (!hasEnoughPose(keypoints, canvasWidth, canvasHeight)) {
-        unstableFeedbackRef.current = "Move whole body into frame";
+        unstableFeedbackRef.current = "Move whole body into frame"; // Write to ref
         return;
       }
     }
@@ -126,7 +124,7 @@ export default function Workout() {
     try {
       const out = detectorRef.current.update(keypoints) || {};
       
-      // Reps Logic: This must be unthrottled for accurate counting/voice prompt
+      // Reps Logic: Unthrottled update of Reps data
       if (out.reps !== undefined) {
         const newReps = out.reps;
 
@@ -139,7 +137,7 @@ export default function Workout() {
             meta: out.meta ?? {}
           };
 
-          // IMMEDIATE (UNTHROTTLED) STATE UPDATE: Triggers voice effect & new list item.
+          // IMMEDIATE STATE UPDATE: Triggers voice effect and perRep display
           setPerRep(prev => [...prev, repEntry]); 
           
           unstableRepsRef.current = newReps; // Update rep ref for display
@@ -147,7 +145,7 @@ export default function Workout() {
 
           console.log("Recorded new rep:", newReps, "meta:", repEntry.meta);
         } else {
-          // Update unstable rep ref for live display changes (e.g., during the rep cycle)
+          // Update unstable rep ref for live display changes
           unstableRepsRef.current = newReps; 
         }
       }
@@ -192,7 +190,7 @@ export default function Workout() {
     }
   }
 
- // saveSession function remains the same, using stable state
+ // saveSession function remains the same
 
 async function saveSession() {
   try {
@@ -228,7 +226,7 @@ async function saveSession() {
       duration,
       score: sessionScore,
       details: { feedback },
-      perRep // already objects with timestamp, score, meta
+      perRep 
     };
 
     console.log("Saving session payload:", body);
@@ -261,7 +259,7 @@ async function saveSession() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-white p-4 rounded shadow">
-          {/* CRITICAL: Set processEvery to 4 to reduce AI processing load by 75% */}
+          {/* CRITICAL OPTIMIZATION: Set processEvery to 4 to reduce AI processing load by 75% */}
           <PoseEngine onResults={handleResults} processEvery={4} width={640} height={480} />
         </div>
 
