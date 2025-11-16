@@ -4,6 +4,7 @@ import PoseEngine from "../core/PoseEngine";
 import createBicepDetector from "../exercises/bicepCurl";
 import createSquatDetector from "../exercises/squat";
 import createPushUpDetector from "../exercises/pushUp";
+import wrapDetector from "../core/detectorWrapper";
 import createLungeDetector from "../exercises/lunge";
 import ExerciseInstructions from "../components/ExerciseInstructions";
 import createPlankDetector from "../exercises/plank";
@@ -29,19 +30,18 @@ export default function Workout() {
   const unstableScoreRef = useRef(0);
   const unstableRepsRef = useRef(0); 
 
-  // 1. THROTTLING EFFECT: Update all continuous display states at a steady rate
+  // THROTTLING EFFECT: Update all continuous display states at a steady rate
   useEffect(() => {
     const intervalId = setInterval(() => {
-      // These setters run every 80ms, independent of the camera frame rate
       setFeedback(unstableFeedbackRef.current);
       setScore(unstableScoreRef.current);
       setReps(unstableRepsRef.current); 
-    }, 80); // 80ms for a smooth ~12.5 updates per second
+    }, 80); // 80ms for smooth UI updates (12.5 FPS)
 
     return () => clearInterval(intervalId);
   }, []); // Run ONLY ONCE on mount
 
-  // Voice feedback logic (must remain dependent on perRep state change)
+  // Voice feedback logic
   useEffect(() => {
     if (!voiceEnabled) return; 
     if (!perRep || perRep.length === 0) return;
@@ -62,13 +62,17 @@ export default function Workout() {
 
 
   function initDetector(name) {
-    if (name === "bicep") return createBicepDetector();
-    if (name === "squat") return createSquatDetector();
-    if (name === "pushup") return createPushUpDetector();
-    if (name === "lunge") return createLungeDetector();
-    if (name === "plank") return createPlankDetector();
-    if (name === "tree") return createTreePoseDetector();
-    return createBicepDetector();
+    let detector;
+    if (name === "bicep") detector = createBicepDetector();
+    else if (name === "squat") detector = createSquatDetector();
+    else if (name === "pushup") detector = createPushUpDetector();
+    else if (name === "lunge") detector = createLungeDetector();
+    else if (name === "plank") detector = createPlankDetector();
+    else if (name === "tree") detector = createTreePoseDetector();
+    else detector = createBicepDetector();
+    
+    // Wrap the raw detector to apply the fast-feedback logic
+    return wrapDetector(detector, { smoothWindow: 3, consecutive: 2 });
   }
 
   useEffect(() => {
@@ -99,18 +103,18 @@ export default function Workout() {
     if (!running) return;
 
     if (!keypoints || keypoints.length === 0) {
-      unstableFeedbackRef.current = "No pose detected"; // Write to ref
+      unstableFeedbackRef.current = "No pose detected";
       return;
     }
 
     if (exercise === "bicep") {
       if (!hasEnoughUpperBody(keypoints, canvasWidth, canvasHeight)) {
-        unstableFeedbackRef.current = "Bring your upper body into frame"; // Write to ref
+        unstableFeedbackRef.current = "Bring your upper body into frame";
         return;
       }
     } else {
       if (!hasEnoughPose(keypoints, canvasWidth, canvasHeight)) {
-        unstableFeedbackRef.current = "Move whole body into frame"; // Write to ref
+        unstableFeedbackRef.current = "Move whole body into frame";
         return;
       }
     }
@@ -122,9 +126,10 @@ export default function Workout() {
     }
 
     try {
+      // NOTE: out here contains the 'stable' and 'smoothedMetric' flags from detectorWrapper
       const out = detectorRef.current.update(keypoints) || {};
       
-      // Reps Logic: Unthrottled update of Reps data
+      // Reps Logic: This must be unthrottled for accurate counting/voice prompt
       if (out.reps !== undefined) {
         const newReps = out.reps;
 
@@ -137,22 +142,18 @@ export default function Workout() {
             meta: out.meta ?? {}
           };
 
-          // IMMEDIATE STATE UPDATE: Triggers voice effect and perRep display
+          // IMMEDIATE STATE UPDATE: Triggers voice effect and perRep display. This is low-frequency.
           setPerRep(prev => [...prev, repEntry]); 
           
           unstableRepsRef.current = newReps; // Update rep ref for display
           lastRecordedRepRef.current = newReps;
-
-          console.log("Recorded new rep:", newReps, "meta:", repEntry.meta);
         } else {
-          // Update unstable rep ref for live display changes
-          unstableRepsRef.current = newReps; 
+          unstableRepsRef.current = newReps; // Update unstable rep ref for live display changes
         }
       }
 
 
       if (out.holdSeconds !== undefined) {
-        // Continuous hold time updates the unstable rep ref
         unstableRepsRef.current = out.holdSeconds;
       }
       
@@ -190,7 +191,6 @@ export default function Workout() {
     }
   }
 
- // saveSession function remains the same
 
 async function saveSession() {
   try {
@@ -259,7 +259,7 @@ async function saveSession() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-white p-4 rounded shadow">
-          {/* CRITICAL OPTIMIZATION: Set processEvery to 4 to reduce AI processing load by 75% */}
+          {/* CRITICAL OPTIMIZATION: Process only every 4th frame */}
           <PoseEngine onResults={handleResults} processEvery={4} width={640} height={480} />
         </div>
 
