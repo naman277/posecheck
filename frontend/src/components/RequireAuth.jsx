@@ -2,12 +2,6 @@
 import React, { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 
-/**
- * Reactive RequireAuth.
- * - Keeps local state for token presence
- * - Listens to "token-changed" custom event and storage events
- * - Re-renders immediately when token appears or is removed
- */
 export default function RequireAuth({ children }) {
   const [hasToken, setHasToken] = useState(!!localStorage.getItem("token"));
 
@@ -22,19 +16,16 @@ export default function RequireAuth({ children }) {
     window.addEventListener("storage", onStorage);
     window.addEventListener("token-changed", onTokenChanged);
 
-    // also poll briefly to catch race conditions (short lived)
-    const interval = setInterval(() => setHasToken(!!localStorage.getItem("token")), 200);
+    // brief poll to catch race conditions
+    const id = setInterval(() => setHasToken(!!localStorage.getItem("token")), 300);
 
     return () => {
       window.removeEventListener("storage", onStorage);
       window.removeEventListener("token-changed", onTokenChanged);
-      clearInterval(interval);
+      clearInterval(id);
     };
   }, []);
 
-  if (!hasToken) {
-    // not logged in — redirect to login
-    return <Navigate to="/login" replace />;
-  }
+  if (!hasToken) return <Navigate to="/login" replace />;
   return children;
 }

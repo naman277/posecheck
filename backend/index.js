@@ -8,6 +8,8 @@ dotenv.config();
 connectDB(); // safe: it warns if MONGO_URI is not set
 
 const app = express();
+const cors = require('cors');
+
 app.use(cors({
   origin: process.env.CORS_ORIGIN || '*'
 }));

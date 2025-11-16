@@ -17,6 +17,7 @@ export default function Login() {
     try {
       const res = await axios.post("/api/auth/login", { email, password });
       const token = res.data?.token || res.data?.accessToken || res.data?.data?.token;
+      const user = res.data?.user || res.data?.data?.user || null;
 
       if (!token) {
         setErr("Login succeeded but no token returned. Check backend.");
@@ -24,19 +25,20 @@ export default function Login() {
         return;
       }
 
-      // store token synchronously
+      // Persist token + user
       localStorage.setItem("token", token);
-      if (res.data.user) localStorage.setItem("user", JSON.stringify(res.data.user));
+      if (user) localStorage.setItem("user", JSON.stringify(user));
 
       console.log("Login: token stored in localStorage");
 
-      // dispatch event so other components (Navbar, RequireAuth) update immediately
+      // notify other components in same tab
       window.dispatchEvent(new Event("token-changed"));
 
-      // small delay to avoid rare race where route guard runs before listeners react
+      // tiny delay to ensure listeners and route guards pick up the change
       setTimeout(() => {
         navigate("/dashboard");
       }, 50);
+
     } catch (error) {
       console.error("Login error", error);
       const msg = error.response?.data?.msg || error.response?.data?.message || error.message;

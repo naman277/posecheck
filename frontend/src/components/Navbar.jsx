@@ -6,21 +6,35 @@ export default function Navbar() {
   const navigate = useNavigate();
   const location = useLocation();
   const [loggedIn, setLoggedIn] = useState(!!localStorage.getItem("token"));
+  const [user, setUser] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("user") || "null"); } catch { return null; }
+  });
 
   useEffect(() => {
+    // update on route change
     setLoggedIn(!!localStorage.getItem("token"));
+    try { setUser(JSON.parse(localStorage.getItem("user") || "null")); } catch { setUser(null); }
   }, [location]);
 
   useEffect(() => {
     function onStorage(e) {
       if (e.key === "token") setLoggedIn(!!e.newValue);
+      if (e.key === "user") {
+        try { setUser(e.newValue ? JSON.parse(e.newValue) : null); } catch { setUser(null); }
+      }
     }
     function onTokenChanged() {
       setLoggedIn(!!localStorage.getItem("token"));
+      try { setUser(JSON.parse(localStorage.getItem("user") || "null")); } catch { setUser(null); }
     }
     window.addEventListener("storage", onStorage);
     window.addEventListener("token-changed", onTokenChanged);
-    const id = setInterval(() => setLoggedIn(!!localStorage.getItem("token")), 300);
+
+    // small polling to catch very rare race conditions (cleans up)
+    const id = setInterval(() => {
+      setLoggedIn(!!localStorage.getItem("token"));
+    }, 400);
+
     return () => {
       window.removeEventListener("storage", onStorage);
       window.removeEventListener("token-changed", onTokenChanged);
@@ -31,9 +45,9 @@ export default function Navbar() {
   function logout() {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
-    // dispatch token-changed so other tabs/components know immediately
     window.dispatchEvent(new Event("token-changed"));
     setLoggedIn(false);
+    setUser(null);
     navigate("/login");
   }
 
@@ -53,7 +67,7 @@ export default function Navbar() {
             <Link to="/login" className="px-3 py-1 border rounded">Login</Link>
           ) : (
             <>
-              <Link to="/profile" className="text-sm">Profile</Link>
+              <Link to="/profile" className="text-sm">{user?.name ?? user?.email ?? "Profile"}</Link>
               <button
                 onClick={logout}
                 className="px-3 py-1 text-white bg-indigo-600 rounded shadow hover:bg-indigo-700"
