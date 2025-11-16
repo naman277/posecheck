@@ -70,7 +70,7 @@ export default function Workout() {
       setPerRep([]);
       lastRecordedRepRef.current = 0;
     }
-  }, [exercise, running, initDetector]);
+  }, [exercise, initDetector]);
 
   // Cleanup on unmount
   useEffect(() => {
