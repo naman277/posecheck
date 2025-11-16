@@ -68,15 +68,7 @@ export default function PoseEngine({ onResults, processEvery = 1, width = 640, h
         // If the frame count is a multiple of processEvery, send the frame to the pose model.
         if (frameCount.current % processEvery === 0) {
           await pose.send({ image: videoRef.current });
-        } else {
-          // If the frame is skipped, we don't draw it here. 
-          // We let the last processed frame/drawing persist.
-          // If we tried to draw every frame here, it would draw the raw video feed, 
-          // but the next `pose.onResults` (which draws the landmarks) is still coming 
-          // asynchronously, leading to flicker/stutter.
-          // We rely purely on pose.onResults for rendering the canvas.
-          // If processEvery is 1 (default), it runs on every frame.
-        }
+        } 
       },
       width,
       height,
