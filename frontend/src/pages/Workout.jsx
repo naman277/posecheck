@@ -226,7 +226,7 @@ async function saveSession() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-white p-4 rounded shadow">
-          <PoseEngine onResults={handleResults} processEvery={4} width={640} height={480} />
+          <PoseEngine onResults={handleResults} processEvery={1} width={640} height={480} />
         </div>
 
         <div className="bg-white p-4 rounded shadow workout-right">
